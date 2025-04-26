@@ -3,6 +3,10 @@ import json
 import os
 from datetime import datetime
 from dotenv import load_dotenv  # cSpell:ignore dotenv
+import matplotlib.pyplot as plt
+import io
+import matplotlib.dates as mdates
+import matplotlib.ticker as ticker
 
 import main_utils as utils
 
@@ -12,7 +16,8 @@ token = os.getenv("DISCORD_TOKEN")
 # File paths for storing user levels and last checked data
 LVLS_FILE = 'lvls.json'
 LAST_RUNTIME_FILE = 'last_runtime.json'
-CHAT_CHANNEL_ID = 1365352681211957413
+READ_CHAT_CHANNEL_ID = 1361015769248567470
+TESTING_CHAT_CHANNEL_ID = 1365761858447081482
 
 # Helper functions to load and save JSON files
 def load_json(path, default):
@@ -46,6 +51,8 @@ class Client(discord.Client):
         self.last_ran_data = load_json(LAST_RUNTIME_FILE, {})
         self.last_checked_time = self.last_ran_data.get("last_checked_time")  # Last check time
 
+        self.graph_requested = False  # graph not requested
+
     async def on_ready(self):
         """
         This function runs when the bot is successfully logged in and ready to work.
@@ -63,8 +70,9 @@ class Client(discord.Client):
         This function checks all messages sent in the channel after the last run time.
         It processes only those that are numbers within the allowed range.
         """
-        channel = self.get_channel(CHAT_CHANNEL_ID)  # Replace with the actual channel ID
-        if channel is None:
+
+        read_channel = self.get_channel(READ_CHAT_CHANNEL_ID)  # Replace with the actual channel ID
+        if read_channel is None:
             print("Error: Could not find the channel.")
             return
 
@@ -78,7 +86,7 @@ class Client(discord.Client):
         while not all_msgs_checked:
             batch = []  # Temporary storage for messages in each batch
             # Fetch the next batch of messages (100 at a time)
-            async for message in channel.history(limit=100, after=after_time):
+            async for message in read_channel.history(limit=100, after=after_time):
                 batch.append(message)
 
             if not batch:
@@ -108,6 +116,10 @@ class Client(discord.Client):
             if message.author.bot:
                 continue  # Skip bot messages
 
+            if message.content == "graph":
+                print(f"message: {message}")
+                self.graph_requested = True
+
             number = utils.splitMsg(message)
 
             if number == 0:  # No number (or too many numbers) found
@@ -124,7 +136,7 @@ class Client(discord.Client):
                 levels_array = user_history.get(last_saved_date, [])
                 last_level = levels_array[-1] if levels_array else 0
             else:
-                last_level = 0
+                last_level = number - 1
 
             print(f"-> old user lvl: {last_level}\n-> new user lvl: {number}")
 
@@ -142,6 +154,61 @@ class Client(discord.Client):
             save_json(LVLS_FILE, self.users_lvls)  # Save updated user levels
             save_json(LAST_RUNTIME_FILE, {"last_checked_time": self.last_checked_time})  # Save the last checked time
             print("Data saved.")
+        
+        if self.graph_requested:
+            await self.send_user_graph()
+
+    async def send_user_graph(self):
+        """
+        Create and send a graph showing all users' level progressions.
+        """
+        testing_channel = self.get_channel(TESTING_CHAT_CHANNEL_ID)
+
+        self.data = self.users_lvls
+        if not self.data:
+            await testing_channel.send("No user data available.")
+            return
+
+        plt.figure(figsize=(10, 6))
+
+        # Plot each user's data
+        for user_id, user_history in self.data.items():
+            dates = []
+            levels = []
+            for date, level_list in sorted(user_history.items()):
+                if not level_list:
+                    continue
+                dates.append(datetime.strptime(date, "%Y-%m-%d"))  # Parse date to datetime object
+                levels.append(level_list[-1])
+
+            if dates and levels:
+                user = await self.fetch_user(int(user_id))  # Fetch user object
+                username = user.name if user else f"User {user_id}"
+                plt.plot(dates, levels, marker='o', label=username)
+
+        plt.title("Levels")
+        plt.xlabel("Day")
+        plt.ylabel("Level")
+
+        # Set x-axis to only show day numbers
+        plt.gca().xaxis.set_major_formatter(mdates.DateFormatter('%d'))  # Show only day
+        plt.gca().xaxis.set_major_locator(mdates.DayLocator())  # Tick every day
+
+        # Set y-axis to integer values only
+        plt.gca().yaxis.set_major_locator(ticker.MaxNLocator(integer=True))
+
+        plt.legend(fontsize="small")
+        plt.grid(True)
+        plt.tight_layout()
+
+        # Save to memory
+        buffer = io.BytesIO()
+        plt.savefig(buffer, format='png')
+        buffer.seek(0)
+        plt.close()
+
+        file = discord.File(fp=buffer, filename='all_users_progression.png')
+        await testing_channel.send(file=file)
 
 
 client = Client(intents=intents)

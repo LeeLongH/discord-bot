@@ -8,9 +8,9 @@ load_dotenv()
 token = os.getenv("DISCORD_TOKEN")
 
 # File paths for storing user levels and last checked data
-LEVELS_FILE = 'lvls.json'
-LAST_RUNTIME = 'last_runtime.json'
-CHAT_CHANNEL_ID = 1365352681211957413  # Replace with your actual channel ID
+LVLS_FILE = 'lvls.json'
+LAST_RUNTIME_FILE = 'last_runtime.json'
+CHAT_CHANNEL_ID = 1365352681211957413
 
 # Helper functions to load and save JSON files
 def load_json(path, default):
@@ -40,9 +40,9 @@ class Client(discord.Client):
         """
         super().__init__(*args, **kwargs)
         # Load user levels and the timestamp of the last checked message
-        self.user_levels = load_json(LEVELS_FILE, {})
-        self.last_rune_data = load_json(LAST_RUNTIME, {})
-        self.last_checked_time = self.last_rune_data.get("last_checked_time")  # Last check time
+        self.users_lvls = load_json(LVLS_FILE, {})
+        self.last_ran_data = load_json(LAST_RUNTIME_FILE, {})
+        self.last_checked_time = self.last_ran_data.get("last_checked_time")  # Last check time
 
     async def on_ready(self):
         """
@@ -69,11 +69,11 @@ class Client(discord.Client):
         # If there's no last checked time, we check all messages
         after_time = datetime.fromisoformat(self.last_checked_time) if self.last_checked_time else None
         all_messages = []
-        done = False
+        all_msgs_checked = False
         last_message_time = None  # To keep track of the last message's timestamp
 
         # Loop to get all messages after the last checked time
-        while not done:
+        while not all_msgs_checked:
             batch = []  # Temporary storage for messages in each batch
             # Fetch the next batch of messages (100 at a time)
             async for message in channel.history(limit=100, after=after_time):
@@ -94,12 +94,12 @@ class Client(discord.Client):
 
             # If we have less than 100 messages, we've reached the end
             if len(batch) < 100:
-                done = True
+                all_msgs_checked = True
             else:
                 # If there are still more messages, continue after the last processed message
                 after_time = last_message_time
 
-        print(f"Found {len(all_messages)} new messages.")
+        print(f"\nNew msgs: {len(all_messages)}\n")
 
         # Process each message to check if it's a valid number
         for message in all_messages:
@@ -113,21 +113,28 @@ class Client(discord.Client):
 
             user_id = str(message.author.id)  # Get the user ID as a string
             current_date = datetime.now().strftime('%Y-%m-%d')  # Get today's date as a string
-            user_history = self.user_levels.get(user_id, {})  # Get the user's level history (default to empty dict)
+            user_history = self.users_lvls.get(user_id, {})  # Get the user's level history (default to empty dict)
 
-            last_level = user_history.get(current_date, 0)  # Get the user's last level for today (default to 0)
+            # Get the user's last level for today (default to 0)
+            if user_history:
+                last_saved_date = max(user_history.keys())
+                user_history.get(last_saved_date)
+            else:
+                last_level = 0
+
+            print(f"-> old user lvl: {last_level}\n-> new user lvl: {number}")
 
             # If the number is within 3 levels higher than the user's last level, update the level
             if number > last_level and number <= last_level + 3:
                 user_history[current_date] = number  # Update the user's level for the current day
-                self.user_levels[user_id] = user_history  # Save the updated history for the user
+                self.users_lvls[user_id] = user_history  # Save the updated history for the user
                 print(f"{message.author} now has level {number} for {current_date}")
 
         # If there are any new messages, update the last checked time and save the data
         if all_messages:
             self.last_checked_time = last_message_time.isoformat()  # Save the last checked time as ISO format
-            save_json(LEVELS_FILE, self.user_levels)  # Save updated user levels
-            save_json(LAST_RUNTIME, {"last_checked_time": self.last_checked_time})  # Save the last checked time
+            save_json(LVLS_FILE, self.users_lvls)  # Save updated user levels
+            save_json(LAST_RUNTIME_FILE, {"last_checked_time": self.last_checked_time})  # Save the last checked time
             print("Data saved.")
 
 client = Client(intents=intents)

@@ -4,6 +4,8 @@ import os
 from datetime import datetime
 from dotenv import load_dotenv  # cSpell:ignore dotenv
 
+import main_utils as utils
+
 load_dotenv()
 token = os.getenv("DISCORD_TOKEN")
 
@@ -106,19 +108,21 @@ class Client(discord.Client):
             if message.author.bot:
                 continue  # Skip bot messages
 
-            try:
-                number = int(message.content.strip())  # Try to convert the message to an integer
-            except ValueError:
-                continue  # Skip if the message is not a number
+            number = utils.splitMsg(message)
+
+            if number == 0:  # No number (or too many numbers) found
+                print(f"skipped")
+                continue
 
             user_id = str(message.author.id)  # Get the user ID as a string
-            current_date = datetime.now().strftime('%Y-%m-%d')  # Get today's date as a string
+            day_date = message.created_at.strftime('%Y-%m-%d')  # Get today's date as a string
             user_history = self.users_lvls.get(user_id, {})  # Get the user's level history (default to empty dict)
 
             # Get the user's last level for today (default to 0)
             if user_history:
                 last_saved_date = max(user_history.keys())
-                user_history.get(last_saved_date)
+                levels_array = user_history.get(last_saved_date, [])
+                last_level = levels_array[-1] if levels_array else 0
             else:
                 last_level = 0
 
@@ -126,9 +130,11 @@ class Client(discord.Client):
 
             # If the number is within 3 levels higher than the user's last level, update the level
             if number > last_level and number <= last_level + 3:
-                user_history[current_date] = number  # Update the user's level for the current day
+                if day_date not in user_history:
+                    user_history[day_date] = []  # Create list if not exists
+                user_history[day_date].append(number)  # Add number to list
                 self.users_lvls[user_id] = user_history  # Save the updated history for the user
-                print(f"{message.author} now has level {number} for {current_date}")
+                print(f"{message.author} now has level {number} for {day_date}")
 
         # If there are any new messages, update the last checked time and save the data
         if all_messages:
@@ -136,6 +142,7 @@ class Client(discord.Client):
             save_json(LVLS_FILE, self.users_lvls)  # Save updated user levels
             save_json(LAST_RUNTIME_FILE, {"last_checked_time": self.last_checked_time})  # Save the last checked time
             print("Data saved.")
+
 
 client = Client(intents=intents)
 client.run(token)

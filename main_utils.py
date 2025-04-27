@@ -56,3 +56,38 @@ async def reply_to_whoever_said_graph(read_channel, graph_request_message_id):
             file = imp.discord.File(fp=buffer, filename='levels.png')
             await message.reply(file=file)
             return  # Stop searching once the message is found and replied to
+        
+def fill_missing_days(user_history):
+    dates = []
+    levels = []
+
+    # (date, levels) -> (date, last_level) 
+    sorted_history = [
+        (imp.datetime.strptime(date_str, "%Y-%m-%d").date(), level_list[-1])
+        for date_str, level_list in user_history.items()
+        if level_list  # Only include dates with non-empty level lists
+    ]
+
+    current_date = sorted_history[0][0] # Oldest date
+    end_date = sorted_history[-1][0] # Latest date
+    current_level = sorted_history[0][1] # Oldest level
+    idx = 0
+
+    # Loop through each day from current_date to end_date (inclusive)
+    while current_date <= end_date:
+        dates.append(current_date)
+        
+        # Check if the current_date matches a date in sorted_history
+        if idx < len(sorted_history) and current_date == sorted_history[idx][0]:
+            # If there's a match, update the current_level with the corresponding level
+            current_level = sorted_history[idx][1]
+            # Move to the next item in sorted_history
+            idx += 1
+        
+        # Append the current_level to the levels list
+        levels.append(current_level)
+        
+        # Move to the next day by incrementing current_date
+        current_date += imp.timedelta(days=1)
+
+    return dates, levels

@@ -10,7 +10,7 @@ LAST_RUNTIME_FILE = 'last_runtime.json'
 READ_CHAT_CHANNEL_ID = 1361015769248567470
 TESTING_CHAT_CHANNEL_ID = 1365761858447081482
 LOCAL_TIMEZONE = imp.pytz.timezone('Europe/Ljubljana')
-READ_CHAT_CHANNEL_ID = TESTING_CHAT_CHANNEL_ID
+#READ_CHAT_CHANNEL_ID = TESTING_CHAT_CHANNEL_ID
 
 # Helper functions to load and save JSON files
 def load_json(path, default):
@@ -136,7 +136,7 @@ class Client(imp.discord.Client):
             else:
                 last_level = number - 1
 
-            print(f"-> old user lvl: {last_level}\n-> new user lvl: {number}")
+            print(f"-> old user lvl: {last_level}\n-> new user lvl?: {number}")
 
             # If the number is within 3 levels higher than the user's last level, update the level
             if number > last_level and number <= last_level + 3:
@@ -173,13 +173,7 @@ class Client(imp.discord.Client):
 
         # Plot each user's data
         for user_id, user_history in self.data.items():
-            dates = []
-            levels = []
-            for date, level_list in sorted(user_history.items()):
-                if not level_list:
-                    continue
-                dates.append(imp.datetime.strptime(date, "%Y-%m-%d"))  # Parse date to datetime object
-                levels.append(level_list[-1])
+            dates, levels = utils.fill_missing_days(user_history)
 
             if dates and levels:
                 
@@ -193,9 +187,9 @@ class Client(imp.discord.Client):
                     username = user.name if user else f"User {user_id}"
 
                 username = utils.crop_username(username)
-                print(username)
+                #print(username)
+                
                 imp.plt.plot(dates, levels, marker='o', label=username)
-
 
                 # 🔥 Add level text above each point
                 for (x, y) in zip(dates, levels):

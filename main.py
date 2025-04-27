@@ -1,32 +1,25 @@
-import discord
-import json
-import os
-from datetime import datetime
-from dotenv import load_dotenv  # cSpell:ignore dotenv
-import matplotlib.pyplot as plt
-import io
-import matplotlib.dates as mdates
-import matplotlib.ticker as ticker
-
+import imports as imp
 import main_utils as utils
 
-load_dotenv()
-token = os.getenv("DISCORD_TOKEN")
+imp.load_dotenv()
+token = imp.os.getenv("DISCORD_TOKEN")
 
 # File paths for storing user levels and last checked data
 LVLS_FILE = 'lvls.json'
 LAST_RUNTIME_FILE = 'last_runtime.json'
 READ_CHAT_CHANNEL_ID = 1361015769248567470
 TESTING_CHAT_CHANNEL_ID = 1365761858447081482
+LOCAL_TIMEZONE = imp.pytz.timezone('Europe/Ljubljana')
+READ_CHAT_CHANNEL_ID = TESTING_CHAT_CHANNEL_ID
 
 # Helper functions to load and save JSON files
 def load_json(path, default):
     """
     Load data from a JSON file. If the file doesn't exist, return the default value.
     """
-    if os.path.exists(path):
+    if imp.os.path.exists(path):
         with open(path, 'r') as f:
-            return json.load(f)
+            return imp.json.load(f)
     return default
 
 def save_json(path, data):
@@ -34,24 +27,25 @@ def save_json(path, data):
     Save data to a JSON file.
     """
     with open(path, 'w') as f:
-        json.dump(data, f, indent=4)
+        imp.json.dump(data, f, indent=4)
 
 # Set up intents to allow the bot to access message content
-intents = discord.Intents.default()
+intents = imp.discord.Intents.default()
 intents.message_content = True
 
-class Client(discord.Client):
+class Client(imp.discord.Client):
     def __init__(self, *args, **kwargs):
         """
         Initialize the bot client.
         """
         super().__init__(*args, **kwargs)
-        # Load user levels and the timestamp of the last checked message
+
+        # JSONs
         self.users_lvls = load_json(LVLS_FILE, {})
         self.last_ran_data = load_json(LAST_RUNTIME_FILE, {})
         self.last_checked_time = self.last_ran_data.get("last_checked_time")  # Last check time
 
-        self.graph_requested = False  # graph not requested
+        self.user_requested_graph = "" # graph not requested
 
     async def on_ready(self):
         """
@@ -71,13 +65,13 @@ class Client(discord.Client):
         It processes only those that are numbers within the allowed range.
         """
 
-        read_channel = self.get_channel(READ_CHAT_CHANNEL_ID)  # Replace with the actual channel ID
+        read_channel = self.get_channel(READ_CHAT_CHANNEL_ID)
         if read_channel is None:
             print("Error: Could not find the channel.")
             return
 
         # If there's no last checked time, we check all messages
-        after_time = datetime.fromisoformat(self.last_checked_time) if self.last_checked_time else None
+        after_time = imp.datetime.fromisoformat(self.last_checked_time) if self.last_checked_time else None
         all_messages = []
         all_msgs_checked = False
         last_message_time = None  # To keep track of the last message's timestamp
@@ -118,16 +112,20 @@ class Client(discord.Client):
 
             if message.content == "graph":
                 print(f"message: {message}")
-                self.graph_requested = True
+                self.user_requested_graph = message.author.id
+                self.graph_request_message_id = message.id  # Store the message ID for later
 
-            number = utils.splitMsg(message)
+            number = utils.split_msg(message) 
 
             if number == 0:  # No number (or too many numbers) found
-                print(f"skipped")
+                print(f"No numbers.")
                 continue
 
             user_id = str(message.author.id)  # Get the user ID as a string
-            day_date = message.created_at.strftime('%Y-%m-%d')  # Get today's date as a string
+
+            local_time = message.created_at.astimezone(LOCAL_TIMEZONE)
+            day_date = local_time.strftime('%Y-%m-%d')
+            
             user_history = self.users_lvls.get(user_id, {})  # Get the user's level history (default to empty dict)
 
             # Get the user's last level for today (default to 0)
@@ -152,24 +150,26 @@ class Client(discord.Client):
         if all_messages:
             self.last_checked_time = last_message_time.isoformat()  # Save the last checked time as ISO format
             save_json(LVLS_FILE, self.users_lvls)  # Save updated user levels
-            save_json(LAST_RUNTIME_FILE, {"last_checked_time": self.last_checked_time})  # Save the last checked time
+            #save_json(LAST_RUNTIME_FILE, {"last_checked_time": self.last_checked_time})  # Save the last checked time
             print("Data saved.")
         
-        if self.graph_requested:
-            await self.send_user_graph()
+        if self.graph_request_message_id:
+            await self.send_user_graph(self.graph_request_message_id)
 
-    async def send_user_graph(self):
+    async def send_user_graph(self, graph_request_message_id):
         """
         Create and send a graph showing all users' level progressions.
         """
         testing_channel = self.get_channel(TESTING_CHAT_CHANNEL_ID)
+        read_channel = self.get_channel(READ_CHAT_CHANNEL_ID)
 
         self.data = self.users_lvls
         if not self.data:
             await testing_channel.send("No user data available.")
             return
 
-        plt.figure(figsize=(10, 6))
+        imp.plt.style.use('dark_background')  # DARK THEME 🌑
+        imp.plt.figure(figsize=(10, 6))
 
         # Plot each user's data
         for user_id, user_history in self.data.items():
@@ -178,38 +178,52 @@ class Client(discord.Client):
             for date, level_list in sorted(user_history.items()):
                 if not level_list:
                     continue
-                dates.append(datetime.strptime(date, "%Y-%m-%d"))  # Parse date to datetime object
+                dates.append(imp.datetime.strptime(date, "%Y-%m-%d"))  # Parse date to datetime object
                 levels.append(level_list[-1])
 
             if dates and levels:
-                user = await self.fetch_user(int(user_id))  # Fetch user object
-                username = user.name if user else f"User {user_id}"
-                plt.plot(dates, levels, marker='o', label=username)
+                
+                guild = read_channel.guild
+                try:
+                    member = await guild.fetch_member(int(user_id))  # Always fetch from server
+                    username = member.display_name
+                except imp.discord.NotFound:
+                    # If user not found in guild, fallback to global username
+                    user = await self.fetch_user(int(user_id))
+                    username = user.name if user else f"User {user_id}"
 
-        plt.title("Levels")
-        plt.xlabel("Day")
-        plt.ylabel("Level")
+                username = utils.crop_username(username)
+                print(username)
+                imp.plt.plot(dates, levels, marker='o', label=username)
 
-        # Set x-axis to only show day numbers
-        plt.gca().xaxis.set_major_formatter(mdates.DateFormatter('%d'))  # Show only day
-        plt.gca().xaxis.set_major_locator(mdates.DayLocator())  # Tick every day
 
-        # Set y-axis to integer values only
-        plt.gca().yaxis.set_major_locator(ticker.MaxNLocator(integer=True))
+                # 🔥 Add level text above each point
+                for (x, y) in zip(dates, levels):
+                    imp.plt.annotate(
+                        str(y),
+                        (x, y),
+                        textcoords="offset points",
+                        xytext=(0, 8),
+                        ha='center',
+                        fontsize=8,
+                        color='white'
+                    )
 
-        plt.legend(fontsize="small")
-        plt.grid(True)
-        plt.tight_layout()
+        imp.plt.title("Levels", color='white')
+        imp.plt.xlabel("Day", color='white')
+        imp.plt.ylabel("Level", color='white')
 
-        # Save to memory
-        buffer = io.BytesIO()
-        plt.savefig(buffer, format='png')
-        buffer.seek(0)
-        plt.close()
+        ax = imp.plt.gca()
+        ax.xaxis.set_major_formatter(imp.mdates.DateFormatter('%d'))
+        ax.xaxis.set_major_locator(imp.mdates.DayLocator())
+        ax.yaxis.set_major_locator(imp.ticker.MaxNLocator(integer=True))
 
-        file = discord.File(fp=buffer, filename='all_users_progression.png')
-        await testing_channel.send(file=file)
+        imp.plt.legend(fontsize="small")
+        imp.plt.grid(True, which='both', axis='x', linestyle='--', linewidth=0.5)
+        imp.plt.tight_layout()
 
+
+        await utils.reply_to_whoever_said_graph(read_channel, graph_request_message_id)
 
 client = Client(intents=intents)
 client.run(token)

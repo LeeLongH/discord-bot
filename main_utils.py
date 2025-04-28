@@ -91,3 +91,30 @@ def fill_missing_days(user_history):
         current_date += imp.timedelta(days=1)
 
     return dates, levels
+
+async def update_username_lvl(guild, user_id, level):
+    member = await guild.fetch_member(user_id)  # Fetch member object by user ID
+    nickname = member.nick if member.nick else member.name
+    # Check if the bot has permission to change the nickname
+    if member.guild.me.guild_permissions.manage_nicknames:
+
+        try:
+            # Find the last number in the username and remember its position
+            match = imp.re.search(r"(\d+)(?!.*\d)", nickname)  # Match the last number in the username
+
+            if match:
+                start, end = match.span()  # Find old level poisiton
+
+                new_nickname = nickname[:start] + f"{level}" + nickname[end:]  # Replace old level with new
+
+                await member.edit(nick=new_nickname)  # New nickname
+                print(f"Successfully changed nickname for {member.name} to {new_nickname}")
+            else:
+                # If no number is found, just append the level
+                new_nickname = f"{nickname}_lvl{level}"
+                await member.edit(nick=new_nickname)  # New nickname
+                print(f"Successfully changed nickname for {member.name} to {new_nickname}")
+        except Exception as e:
+            print(f"Failed to change nickname: {e}")
+    else:
+        print("No permission to change nickname.")

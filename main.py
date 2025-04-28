@@ -46,6 +46,7 @@ class Client(imp.discord.Client):
         self.last_checked_time = self.last_ran_data.get("last_checked_time")  # Last check time
 
         self.user_requested_graph = "" # graph not requested
+        self.graph_request_message_id = 0
 
     async def on_ready(self):
         """
@@ -135,25 +136,34 @@ class Client(imp.discord.Client):
                 last_level = levels_array[-1] if levels_array else 0
             else:
                 last_level = number - 1
+                print("No prior lvl entry for this user")
 
             print(f"-> old user lvl: {last_level}\n-> new user lvl?: {number}")
 
             # If the number is within 3 levels higher than the user's last level, update the level
             if number > last_level and number <= last_level + 3:
+                print("YES YES YES")
                 if day_date not in user_history:
-                    user_history[day_date] = []  # Create list if not exists
+                    user_history[day_date] = []
                 user_history[day_date].append(number)  # Add number to list
                 self.users_lvls[user_id] = user_history  # Save the updated history for the user
                 print(f"{message.author} now has level {number} for {day_date}")
+
+                await utils.update_username_lvl(read_channel.guild, user_id, number)
+
+            else:
+                print(f"{message.author} NO NO NO {number} for.")
+
 
         # If there are any new messages, update the last checked time and save the data
         if all_messages:
             self.last_checked_time = last_message_time.isoformat()  # Save the last checked time as ISO format
             save_json(LVLS_FILE, self.users_lvls)  # Save updated user levels
-            #save_json(LAST_RUNTIME_FILE, {"last_checked_time": self.last_checked_time})  # Save the last checked time
+            save_json(LAST_RUNTIME_FILE, {"last_checked_time": self.last_checked_time})  # Save the last checked time
             print("Data saved.")
         
         if self.graph_request_message_id:
+            print(f"heyyyy {self.graph_request_message_id}")
             await self.send_user_graph(self.graph_request_message_id)
 
     async def send_user_graph(self, graph_request_message_id):

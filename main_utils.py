@@ -1,61 +1,22 @@
-import imports as imp
+import discord
+import os
+import json
+import re
+import io
+import pytz
+from datetime import datetime, timedelta
+datetime = datetime
 
-def split_msg(message):
-    """
-    Check if a number is inside a sentence.
-    If exactly one number is found, return it.
-    Otherwise, return False.
-    """
-    words = message.content.split()
-    numbers = []
+import matplotlib.image as mpimg
+import matplotlib.pyplot as plt
+import matplotlib.dates as mdates
+import matplotlib.ticker as ticker
+from matplotlib.ticker import MaxNLocator
 
-    for word in words:
-        number = is_whole_number_int(word)
-        
-        if number is not None:
-            print(f"Number inside msg {number}")
-
-        if number is not None:
-            numbers.append(number)
-            if len(numbers) > 1:
-                return False  # More than one number found → return False immediately
-
-    return numbers[0] if len(numbers) == 1 else 0
+from collections import Counter
+from dotenv import load_dotenv
 
 
-def is_whole_number_int(content: str):
-    """
-    Check if a string is an integer.
-    Try whole string, or string without last character.
-    """
-    for attempt in (content.strip(), content.strip()[:-1]):
-        try:
-            return int(attempt)
-        except ValueError:
-            continue
-    return None
-
-def crop_username(username):
-    """
-    Crop usernames so only name and surname is left
-    """
-    return imp.re.sub(r'[^A-Za-z\s].*$', '', username)
-
-async def reply_to_whoever_said_graph(read_channel, graph_request_message_id):
-    """
-    Search for the message 'graph' in the specific channel and reply to it, 
-    only last person who said graph, if its less than 100 msg ago.
-    """
-    async for message in read_channel.history(limit=100):
-        if message.id == graph_request_message_id:
-            buffer = imp.io.BytesIO()
-            imp.plt.savefig(buffer, format='png')
-            buffer.seek(0)
-            imp.plt.close()
-
-            file = imp.discord.File(fp=buffer, filename='levels.png')
-            await message.reply(file=file)
-            return  # Stop searching once the message is found and replied to
         
 def fill_missing_days(user_history):
     dates = []
@@ -63,7 +24,7 @@ def fill_missing_days(user_history):
 
     # (date, levels) -> (date, last_level) 
     sorted_history = [
-        (imp.datetime.strptime(date_str, "%Y-%m-%d").date(), level_list[-1])
+        (datetime.strptime(date_str, "%Y-%m-%d").date(), level_list[-1])
         for date_str, level_list in user_history.items()
         if level_list  # Only include dates with non-empty level lists
     ]
@@ -88,33 +49,21 @@ def fill_missing_days(user_history):
         levels.append(current_level)
         
         # Move to the next day by incrementing current_date
-        current_date += imp.timedelta(days=1)
+        current_date += timedelta(days=1)
 
     return dates, levels
 
-async def update_username_lvl(guild, user_id, level):
-    member = await guild.fetch_member(user_id)  # Fetch member object by user ID
-    nickname = member.nick if member.nick else member.name
-    # Check if the bot has permission to change the nickname
-    if member.guild.me.guild_permissions.manage_nicknames:
 
-        try:
-            # Find the last number in the username and remember its position
-            match = imp.re.search(r"(\d+)(?!.*\d)", nickname)  # Match the last number in the username
 
-            if match:
-                start, end = match.span()  # Find old level poisiton
+""" async def joined_dates(guild):
+    members = guild.members
 
-                new_nickname = nickname[:start] + f"{level}" + nickname[end:]  # Replace old level with new
+    members_join_date = sorted(
+        [f"{m.name} joined at {(m.joined_at.strftime('%Y-%m-%d') if m.joined_at else 'Unknown')}" for m in members],
+        key=lambda x: datetime.strptime(x.split(' joined at ')[1], '%Y-%m-%d') if x.split(' joined at ')[1] != 'Unknown' else datetime.min
+    )
 
-                await member.edit(nick=new_nickname)  # New nickname
-                print(f"Successfully changed nickname for {member.name} to {new_nickname}")
-            else:
-                # If no number is found, just append the level
-                new_nickname = f"{nickname}_lvl{level}"
-                await member.edit(nick=new_nickname)  # New nickname
-                print(f"Successfully changed nickname for {member.name} to {new_nickname}")
-        except Exception as e:
-            print(f"Failed to change nickname: {e}")
-    else:
-        print("No permission to change nickname.")
+    print("\n".join(members_join_date)) """
+
+
+

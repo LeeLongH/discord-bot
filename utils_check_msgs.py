@@ -14,6 +14,10 @@ import matplotlib.ticker as ticker
 
 from collections import Counter
 from dotenv import load_dotenv
+import matplotlib.image as mpimg
+
+import random
+THEME_LIST = ["", "dprk-flag-dark.jpg", "dprk-flag-rocket.jpg"]
 
 
 def find_number_in_msg(message):
@@ -92,7 +96,7 @@ def get_user_nickname_and_crop(member):
         print("No nickname, just username.")
     return re.sub(r'[^A-Za-z\s].*$', '', nickname)
 
-async def update_nickname_and_lvl(member, level, nickname):
+async def update_nickname_and_lvl(member, level):
 
     nickname = get_user_nickname_and_crop(member)
 
@@ -134,3 +138,27 @@ async def reply_to_user_message(read_channel, request_message_id, file_name):
         print(f"Message with ID {request_message_id} not found.")
     except discord.HTTPException as e:
         print(f"Failed to fetch or reply to message: {e}")
+
+def add_background_image(ax, bg_image_path, data_x, data_y, alpha=0.3):
+    """
+    Adds a background image to the plot using the given data's x and y bounds.
+
+    ax: The axes object to add the background image to.
+    bg_image_path: Path to the background image.
+    data_x: List or array of x-axis values.
+    data_y: List or array of y-axis values.
+    alpha: Transparency level for the background image (default is 0.3).
+    """
+    print("bg_image_path: ", bg_image_path)
+    try:
+        img = mpimg.imread(bg_image_path)
+        min_x, max_x = min(data_x), max(data_x)
+        min_y, max_y = min(data_y), max(data_y)
+        ax.imshow(img, extent=[min_x, max_x, min_y, max_y], aspect='auto', zorder=0, alpha=alpha)
+    except FileNotFoundError:
+        print(f"Background image '{bg_image_path}' not found. Falling back to dark theme.")
+
+def get_random_theme():
+    num = THEME_LIST[random.randint(0,2)]
+    print(num)
+    return num

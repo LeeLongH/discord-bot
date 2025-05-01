@@ -52,18 +52,3 @@ def fill_missing_days(user_history):
         current_date += timedelta(days=1)
 
     return dates, levels
-
-
-
-""" async def joined_dates(guild):
-    members = guild.members
-
-    members_join_date = sorted(
-        [f"{m.name} joined at {(m.joined_at.strftime('%Y-%m-%d') if m.joined_at else 'Unknown')}" for m in members],
-        key=lambda x: datetime.strptime(x.split(' joined at ')[1], '%Y-%m-%d') if x.split(' joined at ')[1] != 'Unknown' else datetime.min
-    )
-
-    print("\n".join(members_join_date)) """
-
-
-

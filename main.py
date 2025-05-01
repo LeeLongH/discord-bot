@@ -15,6 +15,7 @@ from matplotlib.ticker import MaxNLocator
 
 from collections import Counter
 from dotenv import load_dotenv
+import random
 
 import main_utils as utils
 import utils_check_msgs as ucm
@@ -28,9 +29,9 @@ LAST_RUNTIME_FILE = 'last_runtime.json'
 READ_CHAT_CHANNEL_ID = 1361015769248567470
 TESTING_CHAT_CHANNEL_ID = 1365761858447081482
 LOCAL_TIMEZONE = pytz.timezone('Europe/Ljubljana')
-#READ_CHAT_CHANNEL_ID = TESTING_CHAT_CHANNEL_ID
+#READ_CHAT_CHANNEL_ID = TESTING_CHAT_CHANNEL_ID                  # TESTING
 #TESTING_CHAT_CHANNEL_ID = READ_CHAT_CHANNEL_ID
-READ_CHAT_CHANNEL_ID = MY_SERVER = 1365352681211957413
+#READ_CHAT_CHANNEL_ID = MY_SERVER = 1365352681211957413         # MY SERVER
 
 # Helper functions to load and save JSON files
 def load_json(path, default):
@@ -130,23 +131,27 @@ class Client(discord.Client):
                 self.users_lvls[user_id] = user_history
                 print(f"{message.author} levelled up to {number_found} for {msg_sentence_day_date}")
                 member = await read_channel.guild.fetch_member(user_id)
-                await utils.update_nickname_and_lvl(member, number_found)
+                await ucm.update_nickname_and_lvl(member, number_found)
             else:
                 print(f"{number_found} insufficient for {message.author}")
 
         if self.lvl_graph_request_message_id:
             print(f"Graph detected by {self.lvl_graph_request_message_id}")
+            bg_image_path = ucm.get_random_theme()
             await self.send_user_graph(
                 self.lvl_graph_request_message_id, 
-                read_channel
+                read_channel,
+                bg_image_path
             )
 
         if self.join_graph_request_message_id:
             print(f"Join detected by {self.join_graph_request_message_id}")
+            bg_image_path = ucm.get_random_theme()
             await self.send_join_graph( 
                 read_channel.guild,
                 self.join_graph_request_message_id,
-                read_channel
+                read_channel,
+                bg_image_path
             )
 
         if all_messages:
@@ -155,96 +160,100 @@ class Client(discord.Client):
             save_json(LAST_RUNTIME_FILE, {"last_checked_time": self.last_checked_time})
             print("Time updated")
 
-    async def send_join_graph(self, guild, request_message_id, read_channel):
+    async def send_join_graph(self, guild, request_message_id, read_channel, bg_image_path=""):
         members = guild.members
 
         join_dates = [member.joined_at for member in members if member.joined_at]
         join_dates.sort()
 
-        members_count_list = []
-        total_members = 0
-        for date in join_dates:
-            total_members += 1
-            members_count_list.append(total_members)
+        members_count_list = list(range(1, len(join_dates) + 1))
 
         plt.style.use('dark_background')
-        plt.figure(figsize=(10, 6))
-        plt.plot(join_dates, members_count_list, color='blue', label='X axis')
-        plt.scatter(join_dates, members_count_list, color='cyan', s=20, label='Y axis')
+        fig, ax = plt.subplots(figsize=(10, 6))
+
+        if bg_image_path and join_dates and members_count_list:
+            ucm.add_background_image(ax, bg_image_path, join_dates, members_count_list)
+
+        ax.plot(join_dates, members_count_list, color='blue', label='X axis')
+        ax.scatter(join_dates, members_count_list, color='cyan', s=20, label='Y axis')
 
         for i, date in enumerate(join_dates):
-            players = [user.display_name if user.nick is None else user.nick for user in members if user.joined_at == date]
+            # Get all members who joined on the current date
+            players = [user for user in members if user.joined_at == date]
             for j, player in enumerate(players):
-                plt.text(date, members_count_list[i] + j * 5, player, ha='center', va='bottom', fontsize=9)
+                # Pass the individual member (player) to get_user_nickname_and_crop
+                nickname = ucm.get_user_nickname_and_crop(player)
+                ax.text(date, members_count_list[i] + j * 5, nickname,
+                        ha='center', va='bottom', fontsize=9)
 
-            """
-            for i, date in enumerate(join_dates):
-            players = [get_nickname_by_id(user.id) if get_nickname_by_id(user.id) else user.display_name for user in members if user.joined_at == date]
-            for j, player in enumerate(players):
-            plt.text(date, members_count_list[i] + j * 5, player, ha='center', va='bottom', fontsize=9)
-            """
-
-        plt.xticks(rotation=45)
-        plt.xlabel('Join Date')
-        plt.ylabel('Players in Server')
-        plt.title('Players Joining Over Time')
-        plt.gca().yaxis.set_major_locator(MaxNLocator(integer=True))
+        ax.set_xlabel('Join Date', color='white')
+        ax.set_ylabel('Players in Server', color='white')
+        ax.set_title('Players Joining Over Time', color='white')
+        ax.yaxis.set_major_locator(MaxNLocator(integer=True))
+        plt.xticks(rotation=0, color='white')
+        ax.tick_params(colors='white')
+        ax.xaxis.set_major_formatter(mdates.DateFormatter('%b %d'))
         plt.tight_layout()
 
-        await ucm.reply_to_user_message(read_channel, request_message_id, "Joinings.png")
+        await ucm.reply_to_user_message(read_channel, request_message_id, "Joinings")
 
-    async def send_user_graph(self, request_message_id, read_channel):
-        """
-        Create and send a graph showing all users' level progressions.
-        """
+    async def send_user_graph(self, request_message_id, read_channel, bg_image_path=""):
         self.data = self.users_lvls
 
-        plt.style.use('dark_background')
-        plt.figure(figsize=(10, 6))
+        # First, collect all data to compute min/max ranges
+        all_dates = []
+        all_levels = []
+        processed_data = {}  # To avoid recomputation
 
-        # Plot each user's data
         for user_id, user_history in self.data.items():
             dates, levels = utils.fill_missing_days(user_history)
-
             if dates and levels:
-  
-                try:
-                    member = await read_channel.guild.fetch_member(int(user_id))
-                except discord.NotFound:
-                    print(f"User {user_id} not in the server")
-                    continue
+                all_dates.extend(dates)
+                all_levels.extend(levels)
+                processed_data[user_id] = (dates, levels)
+        
+        plt.style.use('dark_background')
+        fig, ax = plt.subplots(figsize=(10, 6))
 
-                nickname = ucm.get_user_nickname_and_crop(member)
-                #print(username)
+        if bg_image_path and all_dates and all_levels:
+            ucm.add_background_image(ax, bg_image_path, all_dates, all_levels)
                 
-                plt.plot(dates, levels, marker='o', label=nickname)
+        # Plot each user's data
+        for user_id, (dates, levels) in processed_data.items():
+            try:
+                member = await read_channel.guild.fetch_member(int(user_id))
+            except discord.NotFound:
+                print(f"User {user_id} not in the server")
+                continue
 
-                # 🔥 Add level text above each point
-                for (x, y) in zip(dates, levels):
-                    plt.annotate(
-                        str(y),
-                        (x, y),
-                        textcoords="offset points",
-                        xytext=(0, 8),
-                        ha='center',
-                        fontsize=8,
-                        color='white'
-                    )
+            nickname = ucm.get_user_nickname_and_crop(member)
+            ax.plot(dates, levels, marker='o', label=nickname)
 
-        plt.title("Levels", color='white')
-        plt.xlabel("Day", color='white')
-        plt.ylabel("Level", color='white')
+            for (x, y) in zip(dates, levels):
+                ax.annotate(
+                    str(y),
+                    (x, y),
+                    textcoords="offset points",
+                    xytext=(0, 8),
+                    ha='center',
+                    fontsize=8,
+                    color='white'
+                )
 
-        ax = plt.gca()
+        ax.set_title("Levels", color='white')
+        ax.set_xlabel("Day", color='white')
+        ax.set_ylabel("Level", color='white')
+
         ax.xaxis.set_major_formatter(mdates.DateFormatter('%d'))
         ax.xaxis.set_major_locator(mdates.DayLocator())
         ax.yaxis.set_major_locator(ticker.MaxNLocator(integer=True))
 
-        plt.legend(fontsize="small")
-        plt.grid(True, which='both', axis='x', linestyle='--', linewidth=0.5)
+        ax.legend(fontsize="small")
+        ax.grid(True, which='both', axis='x', linestyle='--', linewidth=0.5)
         plt.tight_layout()
 
-        await ucm.reply_to_user_message(read_channel, request_message_id, "levels.png")
+        await ucm.reply_to_user_message(read_channel, request_message_id, "levels")
+
 
 client = Client(intents=intents)
 client.run(token)

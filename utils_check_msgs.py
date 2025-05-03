@@ -17,8 +17,9 @@ from dotenv import load_dotenv
 import matplotlib.image as mpimg
 
 import random
-THEME_LIST = ["", "dprk-flag-dark.jpg", "dprk-flag-rocket.jpg"]
 
+THEME_FOLDER = "slike"
+THEME_LIST = [f for f in os.listdir(THEME_FOLDER) if f.lower().endswith(('.png', '.jpg', '.jpeg'))]
 
 def find_number_in_msg(message):
     """
@@ -94,26 +95,39 @@ def get_user_nickname_and_crop(member):
     else: 
         nickname = member.name 
         print("No nickname, just username.")
-    return re.sub(r'[^A-Za-z\s].*$', '', nickname)
+    return re.sub(r"[^A-Za-z\s\.’].*$", '', nickname)
+
+def get_user_nickname(member):
+    """
+    Get user's nickname, and crop it
+    """
+    if member.nick:
+        nickname = member.nick 
+    else: 
+        nickname = member.name 
+        print("No nickname, just username.")
+    return nickname
 
 async def update_nickname_and_lvl(member, level):
 
-    nickname = get_user_nickname_and_crop(member)
+    nickname = get_user_nickname(member)
+    print("nicknme: ", nickname)
 
     if member.guild.me.guild_permissions.manage_nicknames:
         try:
             # Find the last number in the username and remember its position
             number_in_nickname_found = re.search(r"(\d+)(?!.*\d)", nickname)  # Match the last number in the username
-
+            print("number_in_nickname_found", number_in_nickname_found)
             if number_in_nickname_found:
                 start, end = number_in_nickname_found.span()  # Find old level position
+                print("start n end", start, end)
 
                 new_nickname = nickname[:start] + f"{level}" + nickname[end:]  # Replace old level with new
 
-                print(f"Nickname of {member.name} changed to {new_nickname}")
-            else:  # Number is found, just append the level
-                new_nickname = f"{nickname}_lvl{level}"
-                print(f"Successfully changed nickname for {member.name} to {new_nickname}")
+                print(f"Nickname of {nickname} changed to {new_nickname}")
+            else:
+                new_nickname = f"{nickname} lvl {level}"
+                print(f"Number in nickname not found, just append lvl to {member.name} -> {new_nickname}")
             await member.edit(nick=new_nickname)
 
         except Exception as e:
@@ -139,26 +153,70 @@ async def reply_to_user_message(read_channel, request_message_id, file_name):
     except discord.HTTPException as e:
         print(f"Failed to fetch or reply to message: {e}")
 
-def add_background_image(ax, bg_image_path, data_x, data_y, alpha=0.3):
-    """
-    Adds a background image to the plot using the given data's x and y bounds.
+def get_random_theme():
+    if not THEME_LIST:
+        raise ValueError("Ni slik v mapi.")
+    selected_theme = random.choice(THEME_LIST)
+    print("selected theme: " + selected_theme)
+    print(THEME_LIST)
+    
+    return selected_theme
 
-    ax: The axes object to add the background image to.
-    bg_image_path: Path to the background image.
-    data_x: List or array of x-axis values.
-    data_y: List or array of y-axis values.
-    alpha: Transparency level for the background image (default is 0.3).
+def add_background_image(ax, xlim, ylim, alpha=0.3):
     """
-    print("bg_image_path: ", bg_image_path)
+    Adds a background image in 50% of cases.
+    """
+    send_image = random.choice([True, False])
+    #send_image = True
+
+    if not send_image:
+        print("No background image selected.")
+        return  # No background
+
+    bg_image_name = get_random_theme()
+    bg_image_path = os.path.join("slike", bg_image_name)
+    print("Using background image:", bg_image_name)
+
     try:
         img = mpimg.imread(bg_image_path)
-        min_x, max_x = min(data_x), max(data_x)
-        min_y, max_y = min(data_y), max(data_y)
+        min_x, max_x = xlim
+        min_y, max_y = ylim
         ax.imshow(img, extent=[min_x, max_x, min_y, max_y], aspect='auto', zorder=0, alpha=alpha)
     except FileNotFoundError:
-        print(f"Background image '{bg_image_path}' not found. Falling back to dark theme.")
+        print(f"Background image '{bg_image_name}' not found. Skipping background.")
 
-def get_random_theme():
-    num = THEME_LIST[random.randint(0,2)]
-    print(num)
-    return num
+def fill_missing_days(user_history):
+    dates = []
+    levels = []
+
+    # (date, levels) -> (date, last_level) 
+    sorted_history = [
+        (datetime.strptime(date_str, "%Y-%m-%d").date(), level_list[-1])
+        for date_str, level_list in user_history.items()
+        if level_list  # Only include dates with non-empty level lists
+    ]
+
+    current_date = sorted_history[0][0] # Oldest date
+    #end_date = sorted_history[-1][0] # Latest date
+    end_date = datetime.today().date()  # Today's date
+    current_level = sorted_history[0][1] # Oldest level
+    idx = 0
+
+    # Loop through each day from oldest date to newest
+    while current_date <= end_date:
+        dates.append(current_date)
+        
+        # Check if the current_date matches a date in sorted_history
+        if idx < len(sorted_history) and current_date == sorted_history[idx][0]:
+            # If there's a match, update the current_level with the corresponding level
+            current_level = sorted_history[idx][1]
+            # Move to the next item in sorted_history
+            idx += 1
+        
+        # Append the current_level to the levels list
+        levels.append(current_level)
+        
+        # Move to the next day by incrementing current_date
+        current_date += timedelta(days=1)
+
+    return dates, levels

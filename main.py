@@ -17,7 +17,7 @@ from collections import Counter
 from dotenv import load_dotenv
 import random
 
-import main_utils as utils
+import utils_activity as ua
 import utils_check_msgs as ucm
 
 load_dotenv()
@@ -29,7 +29,7 @@ LAST_RUNTIME_FILE = 'last_runtime.json'
 READ_CHAT_CHANNEL_ID = 1361015769248567470
 TESTING_CHAT_CHANNEL_ID = 1365761858447081482
 LOCAL_TIMEZONE = pytz.timezone('Europe/Ljubljana')
-#READ_CHAT_CHANNEL_ID = TESTING_CHAT_CHANNEL_ID                  # TESTING
+READ_CHAT_CHANNEL_ID = TESTING_CHAT_CHANNEL_ID                  # TESTING KUCIA SERVER
 #TESTING_CHAT_CHANNEL_ID = READ_CHAT_CHANNEL_ID
 #READ_CHAT_CHANNEL_ID = MY_SERVER = 1365352681211957413         # MY SERVER
 
@@ -80,7 +80,6 @@ class Client(discord.Client):
 
         await self.close()
 
-
     async def check_messages(self):
         """
         This function checks all messages sent in the channel after the last run time.
@@ -99,6 +98,12 @@ class Client(discord.Client):
             msg_sentence_day_date = local_time.strftime('%Y-%m-%d')
 
             message_content = message.content.lower()
+
+            if "activity" in message_content:
+                all_user_messages = await ua.get_user_messages_across_guild(message.guild, message.author)
+                await ua.draw_user_hourly_history(message.guild, message.author, message.channel, all_user_messages)
+                return
+                
             if "graph" in message_content:
                 print(f"Message with 'graph': {message_content}")
                 self.lvl_graph_request_message_id = message.id
@@ -130,28 +135,28 @@ class Client(discord.Client):
                 user_history[msg_sentence_day_date].append(number_found)
                 self.users_lvls[user_id] = user_history
                 print(f"{message.author} levelled up to {number_found} for {msg_sentence_day_date}")
-                member = await read_channel.guild.fetch_member(user_id)
+                try:
+                    member = await read_channel.guild.fetch_member(int(user_id))
+                except discord.HTTPException as e:
+                    print(f"Could not fetch member {user_id}: {e}, prolly Discord API problem.")
+                    continue
                 await ucm.update_nickname_and_lvl(member, number_found)
             else:
                 print(f"{number_found} insufficient for {message.author}")
 
         if self.lvl_graph_request_message_id:
             print(f"Graph detected by {self.lvl_graph_request_message_id}")
-            bg_image_path = ucm.get_random_theme()
             await self.send_user_graph(
                 self.lvl_graph_request_message_id, 
                 read_channel,
-                bg_image_path
             )
 
         if self.join_graph_request_message_id:
             print(f"Join detected by {self.join_graph_request_message_id}")
-            bg_image_path = ucm.get_random_theme()
             await self.send_join_graph( 
                 read_channel.guild,
                 self.join_graph_request_message_id,
                 read_channel,
-                bg_image_path
             )
 
         if all_messages:
@@ -160,19 +165,30 @@ class Client(discord.Client):
             save_json(LAST_RUNTIME_FILE, {"last_checked_time": self.last_checked_time})
             print("Time updated")
 
-    async def send_join_graph(self, guild, request_message_id, read_channel, bg_image_path=""):
+    async def send_join_graph(self, guild, request_message_id, read_channel):
         members = guild.members
-
         join_dates = [member.joined_at for member in members if member.joined_at]
         join_dates.sort()
-
         members_count_list = list(range(1, len(join_dates) + 1))
 
         plt.style.use('dark_background')
         fig, ax = plt.subplots(figsize=(10, 6))
 
-        if bg_image_path and join_dates and members_count_list:
-            ucm.add_background_image(ax, bg_image_path, join_dates, members_count_list)
+        if join_dates and members_count_list:
+            member_count = len(members_count_list)
+            extra_days = member_count // 10  # 1 day per 10 members
+            # Compute padded limits
+            min_date = min(join_dates) - timedelta(days=extra_days)
+            max_date = max(join_dates) + timedelta(days=extra_days)
+            max_count = max(members_count_list)
+            ax.set_xlim(min_date, max_date)
+            ax.set_ylim(0, max_count + 1)
+
+            # Use padded ranges for background image
+            ax.set_xlim(min_date, max_date)
+            ax.set_ylim(0, max_count + 1)
+            ucm.add_background_image(ax, [min_date, max_date], [0, max_count + 1])
+
 
         ax.plot(join_dates, members_count_list, color='blue', label='X axis')
         ax.scatter(join_dates, members_count_list, color='cyan', s=20, label='Y axis')
@@ -186,18 +202,38 @@ class Client(discord.Client):
                 ax.text(date, members_count_list[i] + j * 5, nickname,
                         ha='center', va='bottom', fontsize=9)
 
-        ax.set_xlabel('Join Date', color='white')
+        ax.set_xlabel('Join Date (Mondays)', color='white', labelpad=20)
         ax.set_ylabel('Players in Server', color='white')
-        ax.set_title('Players Joining Over Time', color='white')
+        ax.set_title(f'Number of players = {len(join_dates)}', color='white')
         ax.yaxis.set_major_locator(MaxNLocator(integer=True))
         plt.xticks(rotation=0, color='white')
         ax.tick_params(colors='white')
+        #ax.xaxis.set_major_formatter(mdates.DateFormatter('%b %d'))
+        # Set ticks every 7 days starting from the closest Monday
+        ax.xaxis.set_major_locator(mdates.WeekdayLocator(byweekday=mdates.MO, interval=1))
         ax.xaxis.set_major_formatter(mdates.DateFormatter('%b %d'))
+
+        # Add week numbers between the x-axis ticks
+        first_join_date = min(join_dates)
+        current_date = first_join_date
+        week_num = 1
+        
+        while current_date <= max_date:
+            # Calculate the midpoint between the ticks
+            next_date = current_date + timedelta(days=7)
+            if next_date <= max_date:
+                mid_date = current_date + timedelta(days=2)  # Approximate middle of the week
+                ax.text(mid_date, -1, f"Week {week_num}", ha='center', va='top', fontsize=10, color='white')
+                week_num += 1
+            current_date = next_date
+        # Grid
+        ax.grid(True, which='major', axis='x', linestyle='--', linewidth=0.5, color='gray')
+
         plt.tight_layout()
 
         await ucm.reply_to_user_message(read_channel, request_message_id, "Joinings")
 
-    async def send_user_graph(self, request_message_id, read_channel, bg_image_path=""):
+    async def send_user_graph(self, request_message_id, read_channel):
         self.data = self.users_lvls
 
         # First, collect all data to compute min/max ranges
@@ -206,7 +242,7 @@ class Client(discord.Client):
         processed_data = {}  # To avoid recomputation
 
         for user_id, user_history in self.data.items():
-            dates, levels = utils.fill_missing_days(user_history)
+            dates, levels = ucm.fill_missing_days(user_history)
             if dates and levels:
                 all_dates.extend(dates)
                 all_levels.extend(levels)
@@ -215,8 +251,12 @@ class Client(discord.Client):
         plt.style.use('dark_background')
         fig, ax = plt.subplots(figsize=(10, 6))
 
-        if bg_image_path and all_dates and all_levels:
-            ucm.add_background_image(ax, bg_image_path, all_dates, all_levels)
+        if all_dates and all_levels:
+            ax.set_xlim(min(all_dates), max(all_dates) + timedelta(days=1))  # Padding on right
+            ax.set_ylim(0, max(all_levels) + 1)  # Padding on top
+            #ucm.add_background_image(ax, all_dates, all_levels)
+            ucm.add_background_image(ax, [min(all_dates), max(all_dates) + timedelta(days=1)], [0, max(all_levels) + 1])
+
                 
         # Plot each user's data
         for user_id, (dates, levels) in processed_data.items():
@@ -228,31 +268,49 @@ class Client(discord.Client):
 
             nickname = ucm.get_user_nickname_and_crop(member)
             ax.plot(dates, levels, marker='o', label=nickname)
+    	
+            #print(f"User: {nickname}")
+            #print(f"Levels: {levels}")
+            #print(f"Dates: {dates}")
 
-            for (x, y) in zip(dates, levels):
-                ax.annotate(
-                    str(y),
-                    (x, y),
-                    textcoords="offset points",
-                    xytext=(0, 8),
-                    ha='center',
-                    fontsize=8,
-                    color='white'
+            for i, (x, y) in enumerate(zip(dates, levels)):
+                # Check if level increased from previous or to next day
+                prev_level = levels[i - 1] if i > 0 else None
+                next_level = levels[i + 1] if i < len(levels) - 1 else None
+
+                level_increased = (
+                    (prev_level is not None and y > prev_level) or
+                    (next_level is not None and next_level > y)
                 )
 
+                if level_increased or i==0:
+                    ax.annotate(
+                        str(y),
+                        (x, y),
+                        textcoords="offset points",
+                        xytext=(0, 8),
+                        ha='center',
+                        fontsize=8,
+                        color='white'
+                    )
+
+
         ax.set_title("Levels", color='white')
-        ax.set_xlabel("Day", color='white')
+        ax.set_xlabel("Days (Mondays)", color='white')
         ax.set_ylabel("Level", color='white')
 
         ax.xaxis.set_major_formatter(mdates.DateFormatter('%d'))
-        ax.xaxis.set_major_locator(mdates.DayLocator())
+        ax.xaxis.set_major_locator(mdates.WeekdayLocator(byweekday=mdates.MO))
         ax.yaxis.set_major_locator(ticker.MaxNLocator(integer=True))
 
         ax.legend(fontsize="small")
-        ax.grid(True, which='both', axis='x', linestyle='--', linewidth=0.5)
+        ax.grid(True, which='major', axis='x', linestyle='--', linewidth=0.5, color='gray')
         plt.tight_layout()
 
         await ucm.reply_to_user_message(read_channel, request_message_id, "levels")
+
+    async def activity(self, message):  # Not using @bot.command()
+            await self.draw_user_hourly_history(message.guild, message.author, message.channel)
 
 
 client = Client(intents=intents)

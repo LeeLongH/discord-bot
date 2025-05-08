@@ -112,7 +112,7 @@ class Client(discord.Client):
                 print(f"Message with 'join': {message_content}")
                 self.join_graph_request_message_id = message.id
 
-            number_found = ucm.find_number_in_msg(message)
+            number_found = ucm.find_number_in_msg(message.content)
 
             if number_found == 0:
                 print("No numbers.")
@@ -130,11 +130,7 @@ class Client(discord.Client):
 
             jump = max(1, 6 - min(user_current_lvl, 49) // 10)
             if number_found > user_current_lvl and number_found <= user_current_lvl + jump:
-                if msg_sentence_day_date not in user_history:
-                    user_history[msg_sentence_day_date] = []
-                user_history[msg_sentence_day_date].append(number_found)
-                self.users_lvls[user_id] = user_history
-                print(f"{message.author} levelled up to {number_found} for {msg_sentence_day_date}")
+                ucm.find_date_words_in_msg(msg_sentence_day_date, message, user_history, user_id, self.users_lvls, number_found, message.author)
                 try:
                     member = await read_channel.guild.fetch_member(int(user_id))
                 except discord.HTTPException as e:
@@ -146,7 +142,7 @@ class Client(discord.Client):
 
         if self.lvl_graph_request_message_id:
             print(f"Graph detected by {self.lvl_graph_request_message_id}")
-            await self.send_user_graph(
+            await self.send_lvl_graph(
                 self.lvl_graph_request_message_id, 
                 read_channel,
             )
@@ -233,7 +229,7 @@ class Client(discord.Client):
 
         await ucm.reply_to_user_message(read_channel, request_message_id, "Joinings")
 
-    async def send_user_graph(self, request_message_id, read_channel):
+    async def send_lvl_graph(self, request_message_id, read_channel):
         self.data = self.users_lvls
 
         # First, collect all data to compute min/max ranges

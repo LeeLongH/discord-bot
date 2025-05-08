@@ -21,31 +21,51 @@ import random
 THEME_FOLDER = "slike"
 THEME_LIST = [f for f in os.listdir(THEME_FOLDER) if f.lower().endswith(('.png', '.jpg', '.jpeg'))]
 
-def find_number_in_msg(message):
-    """
-    Check if a number is inside a sentence.
-    If exactly one number is found and it's followed by !, ., or whitespace, return it.
-    Otherwise, return 0.
-    """
-    words = message.content.split()
+
+def find_date_words_in_msg(msg_sentence_day_date, message, user_history, user_id, users_lvls, number_found, message_author):
+    words = message.content.lower().split()  # lowercase helps with "Yesterday", etc.
+    msg_date_obj = datetime.strptime(msg_sentence_day_date, '%Y-%m-%d')
     
-    for word in words:
-        num_part = ""
-        
-        for i, char in enumerate(word):
-            if char.isdigit():
-                num_part += char
-            else:
-                # Check if the number ends with valid punctuation
-                if num_part and char in ('!', '.', ' ', '\n'):
-                    print(f"Number {num_part} found")
-                    return int(num_part)
-                break
-        
-        if num_part and i == len(word) - 1:  # If number reaches the end of the word
-            print(f"Number {num_part} found")
-            return int(num_part)
+    yesterday_date = (msg_date_obj - timedelta(days=1)).strftime('%Y-%m-%d')
+    tomorrow_date = (msg_date_obj + timedelta(days=1)).strftime('%Y-%m-%d')
+    current_date = msg_date_obj.strftime('%Y-%m-%d')
+
+    if "yesterday" in words:
+        return write_new_lvl_n_date(yesterday_date, user_history, user_id, users_lvls, number_found, message_author)
+    elif "tomorrow" in words:
+        return write_new_lvl_n_date(tomorrow_date, user_history, user_id, users_lvls, number_found, message_author)
+    else:
+        return write_new_lvl_n_date(current_date, user_history, user_id, users_lvls, number_found, message_author)
+
+
+
+def find_number_in_msg(message_text):
+    """
+    Finds a number in a message if exactly one number is present.
+    A valid number must be followed by a punctuation mark (!, ., whitespace, or end of string).
+    Returns the number as int if valid, else 0.
+    """
+    # Match full integers with optional punctuation after them
+    matches = re.findall(r'\b(\d+)(?=[!\.\s]|$)', message_text)
+
+    if len(matches) == 1:
+        number = int(matches[0])
+        print(f"Number {number} found")
+        return number
+
+    print("No valid number found or multiple numbers.")
     return 0
+
+
+def write_new_lvl_n_date(msg_sentence_day_date, user_history, user_id, users_lvls, number_found, message_author):
+    if msg_sentence_day_date not in user_history:
+        user_history[msg_sentence_day_date] = []
+
+    user_history[msg_sentence_day_date].append(number_found)
+
+    users_lvls[user_id] = user_history  # Update shared dict
+    print(f"{message_author} levelled up to {number_found} for {msg_sentence_day_date}")
+
 
 def utils_check_msgs(channel):
     if channel is None:
@@ -91,11 +111,11 @@ def get_user_nickname_and_crop(member):
     Get user's nickname, and crop it
     """
     if member.nick:
-        nickname = member.nick 
+        return re.sub(r'\s*lvl\S*(\s\S*)*$|[^A-Za-z\s’\'].*$', '', member.nick , flags=re.IGNORECASE)
     else: 
-        nickname = member.name 
-        print("No nickname, just username.")
-    return re.sub(r"[^A-Za-z\s\.’].*$", '', nickname)
+        #nickname = member.name 
+        #print("No nickname, just username.")
+        return member.name
 
 def get_user_nickname(member):
     """
@@ -157,8 +177,8 @@ def get_random_theme():
     if not THEME_LIST:
         raise ValueError("Ni slik v mapi.")
     selected_theme = random.choice(THEME_LIST)
-    print("selected theme: " + selected_theme)
-    print(THEME_LIST)
+    #print("selected theme: " + selected_theme)
+    #print(THEME_LIST)
     
     return selected_theme
 
@@ -170,12 +190,12 @@ def add_background_image(ax, xlim, ylim, alpha=0.3):
     #send_image = True
 
     if not send_image:
-        print("No background image selected.")
+        #print("No background image selected.")
         return  # No background
 
     bg_image_name = get_random_theme()
     bg_image_path = os.path.join("slike", bg_image_name)
-    print("Using background image:", bg_image_name)
+    #print("Using background image:", bg_image_name)
 
     try:
         img = mpimg.imread(bg_image_path)

@@ -17,8 +17,11 @@ from collections import Counter
 from dotenv import load_dotenv
 import random
 
-import utils_activity as ua
+import graphs.user_activity as ua
 import utils_check_msgs as ucm
+import graphs.all_join as ujoin
+import graphs.all_levels as ulvl
+import graphs.xp as uxp
 
 load_dotenv()
 token = os.getenv("DISCORD_TOKEN")
@@ -33,6 +36,13 @@ READ_CHAT_CHANNEL_ID = TESTING_CHAT_CHANNEL_ID                  # TESTING KUCIA 
 #TESTING_CHAT_CHANNEL_ID = READ_CHAT_CHANNEL_ID
 #READ_CHAT_CHANNEL_ID = MY_SERVER = 1365352681211957413         # MY SERVER
 
+def save_json(path, data):
+    """
+    Save data to a JSON file.
+    """
+    with open(path, 'w') as f:
+        json.dump(data, f, indent=4)
+
 # Helper functions to load and save JSON files
 def load_json(path, default):
     """
@@ -42,13 +52,6 @@ def load_json(path, default):
         with open(path, 'r') as f:
             return json.load(f)
     return default
-
-def save_json(path, data):
-    """
-    Save data to a JSON file.
-    """
-    with open(path, 'w') as f:
-        json.dump(data, f, indent=4)
 
 # Set up intents allows bot to access message content
 intents = discord.Intents.default()
@@ -67,8 +70,15 @@ class Client(discord.Client):
         self.last_ran_data = load_json(LAST_RUNTIME_FILE, {})
         self.last_checked_time = self.last_ran_data.get("last_checked_time")
 
-        self.lvl_graph_request_message_id = 0
+        self.levels_graph_request_message_id = 0
         self.join_graph_request_message_id = 0
+
+    def update_runtime(self, last_message_time, LVLS_FILE, LAST_RUNTIME_FILE):
+        """Updates the last checked time and saves state."""
+        self.last_checked_time = last_message_time.isoformat()
+        save_json(LVLS_FILE, self.users_lvls)
+        #save_json(LAST_RUNTIME_FILE, {"last_checked_time": self.last_checked_time})
+        print("Time updated")
 
     async def on_ready(self):
         """
@@ -86,10 +96,10 @@ class Client(discord.Client):
         It processes only those that are numbers within the allowed range.
         """
         read_channel = self.get_channel(READ_CHAT_CHANNEL_ID)
-        (all_messages, last_message_time) = await ucm.get_all_msgs(self.last_checked_time, read_channel)
+        all_messages, last_message_time = await ucm.get_all_msgs(self.last_checked_time, read_channel)
 
+        # Process each message individually
         for message in all_messages:
-
             if message.author.bot:
                 continue  # Skip bot messages
 
@@ -99,67 +109,34 @@ class Client(discord.Client):
 
             message_content = message.content.lower()
 
+            # Handle specific message commands
             if "activity" in message_content:
-                all_user_messages = await ua.get_user_messages_across_guild(message.guild, message.author)
-                await ua.draw_user_hourly_history(message.guild, message.author, message.channel, all_user_messages)
-                return
-                
-            if "graph" in message_content:
-                print(f"Message with 'graph': {message_content}")
-                self.lvl_graph_request_message_id = message.id
+                await ua.handle_activity_request(message)
+            
+            if "levels" in message_content:
+                await ulvl.handle_levels_graph_request(client, message)
 
             if "join" in message_content:
-                print(f"Message with 'join': {message_content}")
-                self.join_graph_request_message_id = message.id
+                await ujoin.handle_join_graph_request(client, message)
+            
+            if "xps" in message_content:
+                await uxp.handle_xps_request(client, message)
 
+
+            # Process level updates from numbers in message
             number_found = ucm.find_number_in_msg(message.content)
-
             if number_found == 0:
                 print("No numbers.")
                 continue
 
-            user_history = self.users_lvls.get(user_id, {})
+            # Update user level if necessary
+            await ucm.process_user_level_update(client, message, user_id, number_found, msg_sentence_day_date)
 
-            if user_history:
-                user_current_lvl = ucm.get_user_level_from_JSON(user_history)
-            else:
-                user_current_lvl = number_found - 1
-                print("No prior lvl entry for this user")
+        # Handle graph request responses
+        await ucm.handle_graph_responses(self, read_channel)
 
-            print(f"-> Old lvl: {user_current_lvl}\n-> New lvl?: {number_found}")
-
-            jump = max(1, 6 - min(user_current_lvl, 49) // 10)
-            if number_found > user_current_lvl and number_found <= user_current_lvl + jump:
-                ucm.find_date_words_in_msg(msg_sentence_day_date, message, user_history, user_id, self.users_lvls, number_found, message.author)
-                try:
-                    member = await read_channel.guild.fetch_member(int(user_id))
-                except discord.HTTPException as e:
-                    print(f"Could not fetch member {user_id}: {e}, prolly Discord API problem.")
-                    continue
-                await ucm.update_nickname_and_lvl(member, number_found)
-            else:
-                print(f"{number_found} insufficient for {message.author}")
-
-        if self.lvl_graph_request_message_id:
-            print(f"Graph detected by {self.lvl_graph_request_message_id}")
-            await self.send_lvl_graph(
-                self.lvl_graph_request_message_id, 
-                read_channel,
-            )
-
-        if self.join_graph_request_message_id:
-            print(f"Join detected by {self.join_graph_request_message_id}")
-            await self.send_join_graph( 
-                read_channel.guild,
-                self.join_graph_request_message_id,
-                read_channel,
-            )
-
-        if all_messages:
-            self.last_checked_time = last_message_time.isoformat()
-            save_json(LVLS_FILE, self.users_lvls)
-            save_json(LAST_RUNTIME_FILE, {"last_checked_time": self.last_checked_time})
-            print("Time updated")
+        # Save the updated state
+        self.update_runtime(last_message_time, LVLS_FILE, LAST_RUNTIME_FILE)
 
     async def send_join_graph(self, guild, request_message_id, read_channel):
         members = guild.members
@@ -229,7 +206,7 @@ class Client(discord.Client):
 
         await ucm.reply_to_user_message(read_channel, request_message_id, "Joinings")
 
-    async def send_lvl_graph(self, request_message_id, read_channel):
+    async def send_level_graph(self, request_message_id, read_channel):
         self.data = self.users_lvls
 
         # First, collect all data to compute min/max ranges
@@ -292,11 +269,11 @@ class Client(discord.Client):
 
 
         ax.set_title("Levels", color='white')
-        ax.set_xlabel("Days (Mondays)", color='white')
+        ax.set_xlabel("Days (Tuesdays)", color='white')
         ax.set_ylabel("Level", color='white')
 
         ax.xaxis.set_major_formatter(mdates.DateFormatter('%d'))
-        ax.xaxis.set_major_locator(mdates.WeekdayLocator(byweekday=mdates.MO))
+        ax.xaxis.set_major_locator(mdates.WeekdayLocator(byweekday=mdates.TU))
         ax.yaxis.set_major_locator(ticker.MaxNLocator(integer=True))
 
         ax.legend(fontsize="small")
@@ -305,8 +282,11 @@ class Client(discord.Client):
 
         await ucm.reply_to_user_message(read_channel, request_message_id, "levels")
 
-    async def activity(self, message):  # Not using @bot.command()
-            await self.draw_user_hourly_history(message.guild, message.author, message.channel)
+    #async def activity(self, message):  # Not using @bot.command()
+    #        await self.handle_activity_request(message)
+
+    async def send_xps_graph(self, message):  # Not using @bot.command()
+        await self.handle_xps_request(message)
 
 
 client = Client(intents=intents)

@@ -4,7 +4,7 @@ import json
 import re
 import io
 import pytz
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 datetime = datetime
 
 import matplotlib.image as mpimg
@@ -30,7 +30,9 @@ def find_date_words_in_msg(msg_sentence_day_date, message, user_history, user_id
     tomorrow_date = (msg_date_obj + timedelta(days=1)).strftime('%Y-%m-%d')
     current_date = msg_date_obj.strftime('%Y-%m-%d')
 
-    if "yesterday" in words:
+    if "yesterday" and "tomorrow" in words:
+        return
+    elif "yesterday" in words:
         return write_new_lvl_n_date(yesterday_date, user_history, user_id, users_lvls, number_found, message_author)
     elif "tomorrow" in words:
         return write_new_lvl_n_date(tomorrow_date, user_history, user_id, users_lvls, number_found, message_author)
@@ -98,6 +100,10 @@ async def get_all_msgs(last_checked_time, read_channel):
             else:
                 after_time = last_message_time
         print(f"\nNew msgs: {len(all_messages)}\n")
+    
+        if not last_message_time:
+            last_message_time = datetime.now(timezone.utc)
+
         return (all_messages, last_message_time)
 
 def get_user_level_from_JSON(user_history):
@@ -126,21 +132,22 @@ def get_user_nickname(member):
     else: 
         nickname = member.name 
         print("No nickname, just username.")
+        #print(nickname)
     return nickname
 
 async def update_nickname_and_lvl(member, level):
 
     nickname = get_user_nickname(member)
-    print("nicknme: ", nickname)
+    print("old nick: ", nickname)
 
     if member.guild.me.guild_permissions.manage_nicknames:
         try:
             # Find the last number in the username and remember its position
             number_in_nickname_found = re.search(r"(\d+)(?!.*\d)", nickname)  # Match the last number in the username
-            print("number_in_nickname_found", number_in_nickname_found)
+            #print("number_in_nickname_found", number_in_nickname_found)
             if number_in_nickname_found:
                 start, end = number_in_nickname_found.span()  # Find old level position
-                print("start n end", start, end)
+                #print("start n end", start, end)
 
                 new_nickname = nickname[:start] + f"{level}" + nickname[end:]  # Replace old level with new
 
@@ -240,3 +247,60 @@ def fill_missing_days(user_history):
         current_date += timedelta(days=1)
 
     return dates, levels
+
+
+
+
+
+
+
+
+
+async def process_user_level_update(client, message, user_id, number_found, msg_sentence_day_date):
+    """Handles the user level update process."""
+    user_history = client.users_lvls.get(user_id, {})
+    user_current_lvl = get_user_current_level(user_history, number_found)
+    print(f"-> Old lvl: {user_current_lvl}\n-> New lvl?: {number_found}")
+
+    # Determine if the level change is valid
+    jump = max(1, 6 - min(user_current_lvl, 49) // 10)
+    if number_found > user_current_lvl and number_found <= user_current_lvl + jump:
+        await update_user_level(client, message, msg_sentence_day_date, user_history, user_id, number_found)
+    else:
+        print(f"{number_found} insufficient for {message.author}")
+
+
+def get_user_current_level(user_history, number_found):
+    """Gets the current user level from history, or sets it based on the found number."""
+    if user_history:
+        return get_user_level_from_JSON(user_history)
+    else:
+        print("No prior lvl entry for this user")
+        return number_found - 1
+    
+async def update_user_level(client, message, msg_sentence_day_date, user_history, user_id, number_found):
+    """Updates the user's level and nickname."""
+    find_date_words_in_msg(msg_sentence_day_date, message, user_history, user_id, client.users_lvls, number_found, message.author)
+    try:
+        member = await message.guild.fetch_member(int(user_id))
+    except discord.HTTPException as e:
+        print(f"Could not fetch member {user_id}: {e}, prolly Discord API problem.")
+        return
+
+    await update_nickname_and_lvl(member, number_found)
+
+
+async def handle_graph_responses(client, read_channel):
+    """Handles sending graph responses based on requests."""
+    if client.levels_graph_request_message_id:
+        print(f"Levels Graph detected by {client.levels_graph_request_message_id}")
+        await client.send_level_graph(client.levels_graph_request_message_id, read_channel)
+
+    if client.join_graph_request_message_id:
+        print(f"Join detected by {client.join_graph_request_message_id}")
+        await client.send_join_graph(read_channel.guild, client.join_graph_request_message_id, read_channel)
+    
+    """ if client.xps_graph_request_message_id:
+        print(f"Xmp detected by {client.xps_graph_request_message_id}")
+        await client.send_xps_graph(read_channel.guild, client.xps_graph_request_message_id, read_channel)
+ """

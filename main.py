@@ -29,10 +29,10 @@ token = os.getenv("DISCORD_TOKEN")
 # File paths for storing user levels and last checked data
 LVLS_FILE = 'lvls.json'
 LAST_RUNTIME_FILE = 'last_runtime.json'
-READ_CHAT_CHANNEL_ID = 1361015769248567470
-TESTING_CHAT_CHANNEL_ID = 1365761858447081482
+READ_CHAT_CHANNEL_ID = 1381883455717114009
+TESTING_CHAT_CHANNEL_ID = 1381883601343348747
 LOCAL_TIMEZONE = pytz.timezone('Europe/Ljubljana')
-READ_CHAT_CHANNEL_ID = TESTING_CHAT_CHANNEL_ID                  # TESTING KUCIA SERVER
+#READ_CHAT_CHANNEL_ID = TESTING_CHAT_CHANNEL_ID                  # TESTING CREW SERVER
 #TESTING_CHAT_CHANNEL_ID = READ_CHAT_CHANNEL_ID
 #READ_CHAT_CHANNEL_ID = MY_SERVER = 1365352681211957413         # MY SERVER
 
@@ -77,7 +77,7 @@ class Client(discord.Client):
         """Updates the last checked time and saves state."""
         self.last_checked_time = last_message_time.isoformat()
         save_json(LVLS_FILE, self.users_lvls)
-        #save_json(LAST_RUNTIME_FILE, {"last_checked_time": self.last_checked_time})
+        save_json(LAST_RUNTIME_FILE, {"last_checked_time": self.last_checked_time})
         print("Time updated")
 
     async def on_ready(self):
@@ -110,7 +110,7 @@ class Client(discord.Client):
             message_content = message.content.lower()
 
             # Handle specific message commands
-            if "activity" in message_content:
+            if "activitys" in message_content:
                 await ua.handle_activity_request(message)
             
             if "levels" in message_content:
@@ -140,7 +140,7 @@ class Client(discord.Client):
 
     async def send_join_graph(self, guild, request_message_id, read_channel):
         members = guild.members
-        join_dates = [member.joined_at for member in members if member.joined_at]
+        join_dates = [member.joined_at for member in members if member.joined_at and not member.bot]
         join_dates.sort()
         members_count_list = list(range(1, len(join_dates) + 1))
 
@@ -167,15 +167,23 @@ class Client(discord.Client):
         ax.scatter(join_dates, members_count_list, color='cyan', s=20, label='Y axis')
 
         for i, date in enumerate(join_dates):
-            # Get all members who joined on the current date
             players = [user for user in members if user.joined_at == date]
             for j, player in enumerate(players):
-                # Pass the individual member (player) to get_user_nickname_and_crop
                 nickname = ucm.get_user_nickname_and_crop(player)
-                ax.text(date, members_count_list[i] + j * 5, nickname,
-                        ha='center', va='bottom', fontsize=9)
+                
+                # Alternate globally: use (i + j) to alternate label position
+                direction = 1 if (i + j) % 2 == 0 else -1  # 1 = right, -1 = left
+                x_offset = timedelta(days=3 * direction)  # 6-hour shift
+                y_offset = members_count_list[i]  # keep same Y for simplicity
+                
+                ax.text(date + x_offset, y_offset, nickname,
+                        ha='left' if direction > 0 else 'right',
+                        va='center', fontsize=9)
+                ax.plot([date, date + x_offset], [members_count_list[i]]*2, color='gray', linewidth=0.5)
 
-        ax.set_xlabel('Join Date (Mondays)', color='white', labelpad=20)
+        show_week_label = len(join_dates) <= 30  # Show full 'Week X' labels only if 30 or fewer members
+
+        ax.set_xlabel('Join Date (Derby start)', color='white', labelpad=20)
         ax.set_ylabel('Players in Server', color='white')
         ax.set_title(f'Number of players = {len(join_dates)}', color='white')
         ax.yaxis.set_major_locator(MaxNLocator(integer=True))
@@ -183,21 +191,33 @@ class Client(discord.Client):
         ax.tick_params(colors='white')
         #ax.xaxis.set_major_formatter(mdates.DateFormatter('%b %d'))
         # Set ticks every 7 days starting from the closest Monday
-        ax.xaxis.set_major_locator(mdates.WeekdayLocator(byweekday=mdates.MO, interval=1))
-        ax.xaxis.set_major_formatter(mdates.DateFormatter('%b %d'))
+        ax.xaxis.set_major_locator(mdates.WeekdayLocator(byweekday=mdates.TU, interval=1))
+        if show_week_label:
+            ax.xaxis.set_major_formatter(mdates.DateFormatter('%b %d'))
+        else:
+            ax.xaxis.set_major_formatter(mdates.DateFormatter('%b'))
+
 
         # Add week numbers between the x-axis ticks
         first_join_date = min(join_dates)
         current_date = first_join_date
         week_num = 1
-        
+        leftmost_date = current_date + timedelta(days=2)  # Approximate middle of first week
+        if not show_week_label:
+            # Add just the "Week" label once on the far left
+            ax.text(leftmost_date - timedelta(days=10), -3, "Week", ha='right', va='top', fontsize=10, color='white')
+
         while current_date <= max_date:
             # Calculate the midpoint between the ticks
             next_date = current_date + timedelta(days=7)
             if next_date <= max_date:
-                mid_date = current_date + timedelta(days=2)  # Approximate middle of the week
-                ax.text(mid_date, -1, f"Week {week_num}", ha='center', va='top', fontsize=10, color='white')
-                week_num += 1
+                if show_week_label:
+                    mid_date = current_date + timedelta(days=2)  # Approximate middle of the week
+                    ax.text(mid_date, -3, f"Week {week_num}", ha='center', va='top', fontsize=10, color='white')
+                else:
+                    mid_date = current_date + timedelta(days=1)  # Approximate middle of the week
+                    ax.text(mid_date, -3, f"{week_num}", ha='center', va='top', fontsize=10, color='white')
+            week_num += 1
             current_date = next_date
         # Grid
         ax.grid(True, which='major', axis='x', linestyle='--', linewidth=0.5, color='gray')
@@ -227,7 +247,6 @@ class Client(discord.Client):
         if all_dates and all_levels:
             ax.set_xlim(min(all_dates), max(all_dates) + timedelta(days=1))  # Padding on right
             ax.set_ylim(0, max(all_levels) + 1)  # Padding on top
-            #ucm.add_background_image(ax, all_dates, all_levels)
             ucm.add_background_image(ax, [min(all_dates), max(all_dates) + timedelta(days=1)], [0, max(all_levels) + 1])
 
                 
@@ -269,7 +288,7 @@ class Client(discord.Client):
 
 
         ax.set_title("Levels", color='white')
-        ax.set_xlabel("Days (Tuesdays)", color='white')
+        ax.set_xlabel("Days (Line = Tuesday / Derby start)", color='white')
         ax.set_ylabel("Level", color='white')
 
         ax.xaxis.set_major_formatter(mdates.DateFormatter('%d'))

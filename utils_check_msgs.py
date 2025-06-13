@@ -136,31 +136,41 @@ def get_user_nickname(member):
     return nickname
 
 async def update_nickname_and_lvl(member, level):
-
     nickname = get_user_nickname(member)
-    print("old nick: ", nickname)
+    print("old nick:", nickname)
 
     if member.guild.me.guild_permissions.manage_nicknames:
         try:
-            # Find the last number in the username and remember its position
-            number_in_nickname_found = re.search(r"(\d+)(?!.*\d)", nickname)  # Match the last number in the username
-            #print("number_in_nickname_found", number_in_nickname_found)
-            if number_in_nickname_found:
-                start, end = number_in_nickname_found.span()  # Find old level position
-                #print("start n end", start, end)
+            number_matches = list(re.finditer(r"\d+", nickname, re.UNICODE))
+            print("Number matches found:")
+            for m in number_matches:
+                print(f"-> {m.group()} at position {m.span()}")
 
-                new_nickname = nickname[:start] + f"{level}" + nickname[end:]  # Replace old level with new
+                if m == level: # member changed nickname level himself
+                    return
 
-                print(f"Nickname of {nickname} changed to {new_nickname}")
+            # Filter only numbers greater than the new level
+            valid_matches = [m for m in number_matches if int(m.group()) < level]
+
+            if valid_matches:
+                # Pick closest number greater than level
+                closest_match = min(valid_matches, key=lambda m: abs(int(m.group()) - level))
+                start, end = closest_match.span()
+                old_number = closest_match.group()
+
+                new_nickname = nickname[:start] + f"{level}" + nickname[end:]
+                print(f"Replaced {old_number} in nickname: {nickname} -> {new_nickname}")
             else:
                 new_nickname = f"{nickname} lvl {level}"
-                print(f"Number in nickname not found, just append lvl to {member.name} -> {new_nickname}")
+                print(f"No suitable number > {level} found. Appending instead: {member.name} -> {new_nickname}")
+
             await member.edit(nick=new_nickname)
 
         except Exception as e:
             print(f"Failed to change nickname: {e}")
     else:
         print("No permission to change nickname.")
+
 
 async def reply_to_user_message(read_channel, request_message_id, file_name):
 
@@ -218,8 +228,11 @@ def fill_missing_days(user_history):
 
     # (date, levels) -> (date, last_level) 
     sorted_history = [
-        (datetime.strptime(date_str, "%Y-%m-%d").date(), level_list[-1])
-        for date_str, level_list in user_history.items()
+        (
+            datetime.strptime(date_str, "%Y-%m-%d").date(), 
+            level_list[0] if i == 0 else level_list[-1]
+        )
+        for i, (date_str, level_list) in enumerate(sorted(user_history.items()))
         if level_list  # Only include dates with non-empty level lists
     ]
 
@@ -229,25 +242,20 @@ def fill_missing_days(user_history):
     current_level = sorted_history[0][1] # Oldest level
     idx = 0
 
-    # Loop through each day from oldest date to newest
     while current_date <= end_date:
-        dates.append(current_date)
-        
-        # Check if the current_date matches a date in sorted_history
+        # Update current_level if we're at a known history date
         if idx < len(sorted_history) and current_date == sorted_history[idx][0]:
-            # If there's a match, update the current_level with the corresponding level
             current_level = sorted_history[idx][1]
-            # Move to the next item in sorted_history
             idx += 1
-        
-        # Append the current_level to the levels list
-        levels.append(current_level)
-        
-        # Move to the next day by incrementing current_date
+
+        # Only store data from 10.6.2025 onward
+        if current_date >= datetime(2025, 2, 10).date():
+            dates.append(current_date)
+            levels.append(current_level)
+
         current_date += timedelta(days=1)
 
     return dates, levels
-
 
 
 

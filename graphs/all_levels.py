@@ -19,7 +19,7 @@ from dotenv import load_dotenv
 from collections import defaultdict
 
 
-async def handle_xps_request(client, message):
+async def handle_levels_graph_request(client, message):
     """Handles 'levels' requests in messages."""
     print(f"Message with 'levels': {message.content}")
     client.levels_graph_request_message_id = message.id

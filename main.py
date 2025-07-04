@@ -7,6 +7,9 @@ import pytz
 from datetime import datetime, timedelta
 datetime = datetime
 
+import argparse
+import sys
+
 import matplotlib.image as mpimg
 import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
@@ -29,12 +32,71 @@ token = os.getenv("DISCORD_TOKEN")
 # File paths for storing user levels and last checked data
 LVLS_FILE = 'lvls.json'
 LAST_RUNTIME_FILE = 'last_runtime.json'
-READ_CHAT_CHANNEL_ID = 1381883455717114009
-TESTING_CHAT_CHANNEL_ID = 1381883601343348747
+TESTING_CHAT_CHANNEL_ID = 1389928255213277324
 LOCAL_TIMEZONE = pytz.timezone('Europe/Ljubljana')
-#READ_CHAT_CHANNEL_ID = TESTING_CHAT_CHANNEL_ID                  # TESTING CREW SERVER
+#READ_CHAT_CHANNEL_ID = 1381883455717114009                  # TESTING OLD CREW SERVER
 #TESTING_CHAT_CHANNEL_ID = READ_CHAT_CHANNEL_ID
-#READ_CHAT_CHANNEL_ID = MY_SERVER = 1365352681211957413         # MY SERVER
+READ_CHAT_CHANNEL_ID = 1365352681211957413         # MY SERVER
+
+#READ_CHAT_CHANNEL_ID = 1389928142117797920         # NEW CREW SERVER
+
+
+KIM_BOT_TEXT_1 = "📈 **Level Compliance Monitoring Protocol – Issued by KimBot Un**  \n" \
+"KimBot Un is your supreme overseer of level progression. It monitors all personal advancement and ensures nicknames reflect your true place in the hierarchy. Weekly, your obedience is measured. Your growth is logged. Your worth... evaluated.  \n" \
+"\n" \
+"🛠️ **How the Surveillance Operates**  \n" \
+f"• Report your level status in ⁠<#1389928142117797920> — preferably at the end of each day, or immediately upon promotion.  \n" \
+"• **Accepted forms of submission**:  \n" \
+"  • Bare declaration: `18`  \n" \
+"  • Submissive pride: `I just hit level 18!`  \n" \
+"  • Propaganda flair: `Leveled up to 18 today. The Party is pleased.`  \n" \
+"• The bot will scan your message and extract the number. Your statement is not for yourself — it is for the Party. KimBot Un extracts what it needs."
+
+KIM_BOT_TEXT_2 = "⚠️ **Deception Warning**  \n" \
+"• If your message contains multiple numbers, misinformation, or evidence of counterrevolutionary revolt, it shall be dismissed without mercy.  \n" \
+"\n" \
+"🔄 **Weekly Evaluations**  \n" \
+"• Due to budgetary sanctions imposed by inferior capitalist regimes, KimBot Un is not online 24/7.  \n" \
+"• However, operations are manually executed weekly. You will be monitored.  \n" \
+"• Each cycle includes:  \n" \
+f"  • Reading your latest level confession from ⁠<#1389928142117797920>  \n" \
+"  • Updating your Discord nickname to reflect your Party-assigned rank  \n" \
+"  • Generating a weekly progress chart — a glorious graph of those who thrive, and those who fail the state  \n" \
+"• Those who fall behind may be scheduled for motivational re-education."
+
+KIM_BOT_TEXT_3 = "📦 **Approved Commands for Civilian Use**  \n" \
+"Use these in this channel.  \n" \
+"• `/levels` – View current ranks for all juche supporters  \n" \
+"• `/join` – See when comrades joined the cause  \n" \
+"• `/activity` – (Currently defective; under surveillance)  \n" \
+"• `/xps` – Visualize your obedience through XP growth  \n" \
+"\n" \
+"🧠 **Tips for Survival & Advancement**  \n" \
+"• Report your level consistently to maintain accuracy.  \n" \
+"• No need to alter your own nickname. The Party decides your identity.  \n" \
+"• Major updates are paused due to resource prioritization. Feedback is welcomed if it aligns with national values."
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 def save_json(path, data):
     """
@@ -84,10 +146,19 @@ class Client(discord.Client):
         """
         This function runs when the bot is successfully logged in and ready to work.
         """
-        print(f'Logged in as {self.user}!')
+        if True:
+            print(f'Logged in as {self.user}!')
 
-        await self.check_messages()
-
+            await self.check_messages()
+        else:
+            # reply = f"I was trained by <@{OWNER_ID}>. Blame them."
+            channel = self.get_channel(READ_CHAT_CHANNEL_ID)
+            #message = await channel.fetch_message(1389259135635427483)
+            #await message.reply("Check out the pinned message in the #level-up channel")
+            await channel.send(KIM_BOT_TEXT_1)
+            await channel.send(KIM_BOT_TEXT_2)
+            await channel.send(KIM_BOT_TEXT_3)
+            
         await self.close()
 
     async def check_messages(self):
@@ -222,9 +293,14 @@ class Client(discord.Client):
         # Grid
         ax.grid(True, which='major', axis='x', linestyle='--', linewidth=0.5, color='gray')
 
-        plt.tight_layout()
+        #plt.tight_layout()
 
-        await ucm.reply_to_user_message(read_channel, request_message_id, "Joinings")
+        #await ucm.reply_to_user_message(read_channel, request_message_id, "Joinings")
+
+        for member in members:
+            if member.joined_at and not member.bot:
+                print(f"{member.display_name} joined on {member.joined_at}")
+
 
     async def send_level_graph(self, request_message_id, read_channel):
         self.data = self.users_lvls
@@ -235,7 +311,8 @@ class Client(discord.Client):
         processed_data = {}  # To avoid recomputation
 
         for user_id, user_history in self.data.items():
-            dates, levels = ucm.fill_missing_days(user_history)
+            #dates, levels = ucm.fill_missing_days(user_history)
+            dates, levels = ucm.fill_last_days(user_history)
             if dates and levels:
                 all_dates.extend(dates)
                 all_levels.extend(levels)
@@ -285,14 +362,23 @@ class Client(discord.Client):
                         fontsize=8,
                         color='white'
                     )
-
+                
+        less_than_month = False
+        if all_dates:
+            span_days = (max(all_dates) - min(all_dates)).days
+            less_than_month = span_days < 30
 
         ax.set_title("Levels", color='white')
         ax.set_xlabel("Days (Line = Tuesday / Derby start)", color='white')
         ax.set_ylabel("Level", color='white')
 
-        ax.xaxis.set_major_formatter(mdates.DateFormatter('%d'))
-        ax.xaxis.set_major_locator(mdates.WeekdayLocator(byweekday=mdates.TU))
+        if less_than_month:
+            ax.xaxis.set_major_formatter(mdates.DateFormatter('%d %b'))
+            ax.xaxis.set_major_locator(mdates.DayLocator())
+            ax.set_xlabel("Days", color='white')
+        else:
+            ax.xaxis.set_major_formatter(mdates.DateFormatter('%d'))
+            ax.xaxis.set_major_locator(mdates.WeekdayLocator(byweekday=mdates.TU))
         ax.yaxis.set_major_locator(ticker.MaxNLocator(integer=True))
 
         ax.legend(fontsize="small")

@@ -120,7 +120,7 @@ def get_user_nickname_and_crop(member):
         return re.sub(r'\s*lvl\S*(\s\S*)*$|[^A-Za-z\s’\'].*$', '', member.nick , flags=re.IGNORECASE)
     else: 
         #nickname = member.name 
-        #print("No nickname, just username.")
+        print("No nickname, just username for @ ",member.name)
         return member.name
 
 def get_user_nickname(member):
@@ -128,16 +128,21 @@ def get_user_nickname(member):
     Get user's nickname, and crop it
     """
     if member.nick:
-        nickname = member.nick 
+        nickname = member.nick
+        has_nickname = True
     else: 
         nickname = member.name 
         print("No nickname, just username.")
         #print(nickname)
-    return nickname
+        has_nickname = False
+    return (nickname, has_nickname)
 
 async def update_nickname_and_lvl(member, level):
-    nickname = get_user_nickname(member)
+    nickname, has_nickname = get_user_nickname(member)
     print("old nick:", nickname)
+
+    if not has_nickname:
+        print("NICKNAME NOT FOUND; REQUIRED ATTENTION")
 
     if member.guild.me.guild_permissions.manage_nicknames:
         try:
@@ -161,7 +166,8 @@ async def update_nickname_and_lvl(member, level):
                 new_nickname = nickname[:start] + f"{level}" + nickname[end:]
                 print(f"Replaced {old_number} in nickname: {nickname} -> {new_nickname}")
             else:
-                new_nickname = f"{nickname} lvl {level}"
+                #new_nickname = f"{nickname} lvl {level}"
+                new_nickname = nickname
                 print(f"No suitable number > {level} found. Appending instead: {member.name} -> {new_nickname}")
 
             await member.edit(nick=new_nickname)
@@ -249,7 +255,7 @@ def fill_missing_days(user_history):
             idx += 1
 
         # Only store data from 10.6.2025 onward
-        if current_date >= datetime(2025, 2, 10).date():
+        if current_date >= datetime(2025, 6, 1).date():
             dates.append(current_date)
             levels.append(current_level)
 
@@ -258,6 +264,42 @@ def fill_missing_days(user_history):
     return dates, levels
 
 
+def fill_last_days(user_history):
+    dates = []
+    levels = []
+
+    # Pretvori in sortiraj zgodovino po datumu
+    sorted_history = sorted(
+        (datetime.strptime(date_str, "%Y-%m-%d").date(), level_list[-1])
+        for date_str, level_list in user_history.items()
+        if level_list
+    )
+
+    # Če ni zgodovine, vrni prazno
+    if not sorted_history:
+        return [], []
+
+    last_date = sorted_history[-1][0]
+    today = datetime.today().date()
+
+    level = sorted_history[-1][1]
+
+    # Če je zadnji vnos starejši od 10 dni, ne vračaj ničesar
+    if (today - last_date).days > max(8, 5 + level // 10 + level // 20):
+        return [], []
+
+    # Dodaj obstoječe datume/levele od 2025.6.1 naprej
+    for date, level in sorted_history:
+        if date >= datetime(2025, 5, 7).date():
+            dates.append(date)
+            levels.append(level)
+
+    # Dodaj še današnji datum z zadnjim znanim levelom
+    last_level = sorted_history[-1][1]
+    dates.append(today)
+    levels.append(last_level)
+
+    return dates, levels
 
 
 
